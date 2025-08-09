@@ -17,6 +17,8 @@ export default function LessonPage() {
   const [currentLessonIndex, setCurrentLessonIndex] = useState(0);
   const [showProof, setShowProof] = useState(false);
   const [showPlan, setShowPlan] = useState(true); // Show plan first
+  // User toggle for face overlay (debug landmarks)
+  const [showOverlay, setShowOverlay] = useState<boolean>(false);
   
   const {
     lessonState,
@@ -38,7 +40,15 @@ export default function LessonPage() {
       // No lessons, redirect to home
       router.push('/');
     }
+    // Load overlay preference
+    const pref = localStorage.getItem('pref_show_overlay');
+    if (pref !== null) setShowOverlay(pref === 'true');
   }, [router]);
+
+  // Persist overlay preference
+  useEffect(() => {
+    localStorage.setItem('pref_show_overlay', String(showOverlay));
+  }, [showOverlay]);
 
   const currentLesson = lessons[currentLessonIndex];
 
@@ -282,7 +292,24 @@ export default function LessonPage() {
               <h3 className="text-sm font-semibold text-gray-400 mb-3">
                 Face Tracking
               </h3>
-              <CameraAttention showDebug={false} />
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs text-gray-400 flex items-center gap-2">
+                  <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: showOverlay ? '#22c55e' : '#6b7280' }} />
+                  Show overlay
+                </label>
+                <label className="inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="sr-only peer"
+                    checked={showOverlay}
+                    onChange={(e) => setShowOverlay(e.target.checked)}
+                  />
+                  <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:bg-prof-purple relative transition-colors">
+                    <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${showOverlay ? 'translate-x-5' : ''}`} />
+                  </div>
+                </label>
+              </div>
+              <CameraAttention showDebug={showOverlay} />
               
               {/* Expression indicators */}
               <div className="mt-4 space-y-2">
