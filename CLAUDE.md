@@ -20,8 +20,9 @@ npm install youtube-transcript pdf-parse
 npm install framer-motion
 
 # Set up environment variables
-echo "OPENAI_API_KEY=your_key_here" >> .env.local
-echo "ELEVENLABS_API_KEY=your_key_here" >> .env.local
+echo "ANTHROPIC_API_KEY=your_key_here" >> .env.local  # Claude AI (Best for education)
+echo "OPENAI_API_KEY=your_key_here" >> .env.local     # GPT-4 (Fallback)
+echo "ELEVENLABS_API_KEY=your_key_here" >> .env.local # Voice synthesis
 ```
 
 ### Development Commands
@@ -45,6 +46,14 @@ vercel --prod
 ```
 
 ## Architecture
+
+### AI Provider Priority
+The system intelligently selects AI providers for content generation:
+1. **Anthropic Claude** (Primary): Superior for educational content, better explanations
+2. **OpenAI GPT-4** (Fallback): Used if Claude unavailable or fails
+3. **Content Extraction** (Last Resort): Basic analysis when no AI APIs configured
+
+The lesson plan UI shows which AI generated the content with a "Powered by" badge.
 
 ### Core Features
 1. **Multi-Modal Input System**: Face/eye tracking + voice commands

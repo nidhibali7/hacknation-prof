@@ -20,33 +20,56 @@ export async function POST(request: NextRequest) {
     console.log('[Lesson Generate] Creating ADAPTIVE lesson from', source.type);
     console.log('[Lesson Generate] Content preview:', content.substring(0, 200));
 
+    // Check which APIs are configured
+    const hasAnthropic = !!process.env.ANTHROPIC_API_KEY;
+    const hasOpenAI = !!process.env.OPENAI_API_KEY;
+    
+    console.log('[Lesson Generate] Available AI providers:');
+    console.log('  - Anthropic (Claude):', hasAnthropic ? '✅ Configured' : '❌ No API key (set ANTHROPIC_API_KEY in .env.local)');
+    console.log('  - OpenAI (GPT-4):', hasOpenAI ? '✅ Configured' : '❌ No API key (set OPENAI_API_KEY in .env.local)');
+
     // Determine which AI to use
     let lesson: Lesson | null = null;
+    let usedProvider = 'none';
 
     // Try Anthropic first (Claude is great for education)
-    if (process.env.ANTHROPIC_API_KEY) {
-      console.log('[Lesson Generate] Using Anthropic Claude...');
+    if (hasAnthropic) {
+      console.log('[Lesson Generate] 🤖 Using Anthropic Claude for superior educational content...');
       try {
         lesson = await generateWithAnthropic(content, source, options);
+        usedProvider = 'anthropic';
+        console.log('[Lesson Generate] ✅ Successfully generated with Anthropic Claude!');
       } catch (error) {
-        console.error('[Lesson Generate] Anthropic failed:', error);
+        console.error('[Lesson Generate] ⚠️ Anthropic failed:', error);
       }
     }
 
     // Fallback to OpenAI
-    if (!lesson && process.env.OPENAI_API_KEY) {
-      console.log('[Lesson Generate] Using OpenAI GPT-4...');
+    if (!lesson && hasOpenAI) {
+      console.log('[Lesson Generate] 🤖 Using OpenAI GPT-4...');
       try {
         lesson = await generateWithOpenAI(content, source, options);
+        usedProvider = 'openai';
+        console.log('[Lesson Generate] ✅ Successfully generated with OpenAI GPT-4!');
       } catch (error) {
-        console.error('[Lesson Generate] OpenAI failed:', error);
+        console.error('[Lesson Generate] ⚠️ OpenAI failed:', error);
       }
     }
 
     // Last resort - basic extraction (NOT mock data)
     if (!lesson) {
-      console.log('[Lesson Generate] Using basic content extraction...');
+      console.log('[Lesson Generate] ⚠️ Using basic content extraction (no AI APIs configured)');
+      console.log('[Lesson Generate] 💡 For best results, add ANTHROPIC_API_KEY or OPENAI_API_KEY to .env.local');
       lesson = await generateFromContent(content, source);
+      usedProvider = 'extraction';
+    }
+    
+    // Add metadata about which AI was used
+    if (lesson) {
+      lesson.metadata = {
+        ...lesson.metadata,
+        generatedBy: usedProvider as any
+      };
     }
 
     return NextResponse.json<ApiResponse<Lesson>>({

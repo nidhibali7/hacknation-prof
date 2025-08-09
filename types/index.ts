@@ -36,6 +36,7 @@ export interface LessonMetadata {
   topics: string[];
   prerequisites: string[];
   estimatedTime: number; // minutes
+  generatedBy?: 'anthropic' | 'openai' | 'extraction';
 }
 
 // ============= CHALLENGE TYPES =============

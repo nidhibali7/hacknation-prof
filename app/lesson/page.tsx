@@ -115,6 +115,19 @@ export default function LessonPage() {
                 <p className="text-gray-400">
                   {lessons.length} adaptive micro-lessons prepared
                 </p>
+                {/* Show which AI generated the content */}
+                {lessons[0]?.metadata?.generatedBy && (
+                  <div className="mt-3 inline-flex items-center gap-2 px-3 py-1 bg-gray-800/50 rounded-full text-xs">
+                    <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                    <span className="text-gray-300">
+                      Powered by {
+                        lessons[0].metadata.generatedBy === 'anthropic' ? 'Claude AI' :
+                        lessons[0].metadata.generatedBy === 'openai' ? 'GPT-4' :
+                        'Content Analysis'
+                      }
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-4 mb-8">
