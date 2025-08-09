@@ -11,20 +11,37 @@ export async function POST(request: NextRequest) {
     if (!file) {
       return NextResponse.json<ApiResponse<null>>({
         success: false,
-        error: 'No PDF file provided',
+        error: 'No file provided',
         timestamp: Date.now(),
       }, { status: 400 });
     }
 
-    console.log('[PDF Ingest] Processing:', file.name);
+    console.log('[File Ingest] Processing:', file.name, 'Type:', file.type);
 
-    // Convert file to buffer
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
+    let text = '';
+    let pageCount = 1;
 
-    // Parse PDF
-    const data = await pdf(buffer);
-    const text = data.text;
+    // Check if it's an image
+    if (file.type.startsWith('image/')) {
+      // For images, we'll use OCR or just create a placeholder
+      // In a real implementation, you'd use an OCR service like Tesseract or Google Vision
+      console.log('[File Ingest] Image detected, using placeholder text');
+      text = `[Image Content: ${file.name}]\n\nThis appears to be an image document. In production, this would be processed with OCR to extract text. For the demo, we'll generate sample educational content based on common topics.`;
+      
+      // For demo, generate some educational content
+      text += '\n\nSample Educational Content:\n';
+      text += 'Understanding Visual Information:\n';
+      text += 'Images and diagrams are powerful tools for learning. They can convey complex information quickly and help with retention. ';
+      text += 'When studying from visual materials, focus on key elements, patterns, and relationships between components. ';
+      text += 'Practice describing what you see to reinforce your understanding.';
+    } else {
+      // Parse PDF as before
+      const bytes = await file.arrayBuffer();
+      const buffer = Buffer.from(bytes);
+      const data = await pdf(buffer);
+      text = data.text;
+      pageCount = data.numpages;
+    }
 
     // Generate lessons from PDF text
     const lessons = await generateLessonsFromPDF(text, {
@@ -33,7 +50,7 @@ export async function POST(request: NextRequest) {
       targetDuration: 60,
     });
 
-    console.log('[PDF Ingest] Generated', lessons.length, 'lessons from', data.numpages, 'pages');
+    console.log('[File Ingest] Generated', lessons.length, 'lessons from', pageCount, 'pages');
 
     return NextResponse.json<ApiResponse<{
       lessons: Lesson[];
@@ -41,25 +58,27 @@ export async function POST(request: NextRequest) {
         pages: number;
         filename: string;
         textLength: number;
+        fileType: string;
       };
     }>>({
       success: true,
       data: {
         lessons,
         metadata: {
-          pages: data.numpages,
+          pages: pageCount,
           filename: file.name,
           textLength: text.length,
+          fileType: file.type,
         },
       },
       timestamp: Date.now(),
     });
 
   } catch (error) {
-    console.error('[PDF Ingest] Error:', error);
+    console.error('[File Ingest] Error:', error);
     return NextResponse.json<ApiResponse<null>>({
       success: false,
-      error: error instanceof Error ? error.message : 'Failed to process PDF',
+      error: error instanceof Error ? error.message : 'Failed to process file',
       timestamp: Date.now(),
     }, { status: 500 });
   }

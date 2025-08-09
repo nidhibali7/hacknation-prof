@@ -90,21 +90,7 @@ export function determineTransition(
   currentState: LessonState,
   sensing: SensingState
 ): LessonEvent | null {
-  // High confidence confusion detection
-  if (sensing.face?.confused && sensing.face.confidence > 0.7) {
-    if (currentState === 'explain' || currentState === 'advanced') {
-      return { type: 'CONFUSION', timestamp: Date.now() };
-    }
-  }
-
-  // Distraction detection
-  if (sensing.gaze?.outsideViewport && sensing.gaze.duration > 2000) {
-    if (currentState === 'explain' || currentState === 'simplify') {
-      return { type: 'DISTRACTION', timestamp: Date.now() };
-    }
-  }
-
-  // Voice command mapping
+  // Voice command mapping ONLY - remove automatic transitions
   if (sensing.lastVoiceCommand) {
     switch (sensing.lastVoiceCommand) {
       case 'DEEPEN':
@@ -127,11 +113,9 @@ export function determineTransition(
     }
   }
 
-  // Break suggestion based on attention
-  if (sensing.shouldTakeBreak && currentState !== 'break') {
-    return { type: 'DISTRACTION', timestamp: Date.now() };
-  }
-
+  // Don't auto-trigger states based on face/gaze for demo
+  // This prevents unexpected state changes during the hackathon
+  
   return null;
 }
 

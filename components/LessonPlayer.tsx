@@ -4,7 +4,6 @@ import { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '@/store/useAppStore';
 import { Lesson } from '@/types';
-import { getTransitionMessage, determineContentSpeed } from '@/lib/stateMachine';
 import { Play, Pause, SkipForward, Volume2, Code, Brain, Sparkles } from 'lucide-react';
 
 interface LessonPlayerProps {
@@ -26,151 +25,203 @@ export function LessonPlayer({ lesson, onComplete }: LessonPlayerProps) {
   const [displayText, setDisplayText] = useState('');
   const [currentWordIndex, setCurrentWordIndex] = useState(0);
   const [showCode, setShowCode] = useState(false);
-  const [speed, setSpeed] = useState(1.0);
-  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const [hasStarted, setHasStarted] = useState(false);
+  
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
 
   const segment = lesson.segments[currentSegment];
   const content = segment?.variants[currentVariant];
 
-  // Adjust speed based on sensing data
+  // Auto-start lesson after intro
   useEffect(() => {
-    const newSpeed = determineContentSpeed(sensing);
-    setSpeed(newSpeed);
-    
-    if (utteranceRef.current) {
-      utteranceRef.current.rate = newSpeed;
-    }
-  }, [sensing]);
-
-  // Handle state transitions
-  useEffect(() => {
-    if (lessonState === 'intro' && !isPlaying) {
-      // Auto-start after 2 seconds
-      setTimeout(() => {
+    if (lessonState === 'intro' && !hasStarted) {
+      const timer = setTimeout(() => {
         transitionState({ type: 'START', timestamp: Date.now() });
         setIsPlaying(true);
+        setHasStarted(true);
       }, 2000);
+      
+      return () => clearTimeout(timer);
     }
-  }, [lessonState, isPlaying, transitionState]);
+  }, [lessonState, hasStarted, transitionState]);
 
-  // Animated text display
+  // Play lesson segment
   useEffect(() => {
-    if (!content?.text || !isPlaying) return;
+    if (!isPlaying || !content?.text) return;
 
+    let isCancelled = false;
     const words = content.text.split(' ');
-    let index = 0;
+    let wordIndex = 0;
 
-    const interval = setInterval(() => {
-      if (index <= words.length) {
-        setDisplayText(words.slice(0, index).join(' '));
-        setCurrentWordIndex(index);
-        index++;
-      } else {
-        clearInterval(interval);
-        // Move to next segment or challenge
-        if (currentSegment < lesson.segments.length - 1) {
-          setTimeout(() => nextSegment(), 2000);
-        } else {
-          transitionState({ type: 'COMPLETE', timestamp: Date.now() });
-        }
-      }
-    }, (60 / (words.length * speed)) * 1000); // Adjust timing based on speed
-
-    return () => clearInterval(interval);
-  }, [content, isPlaying, speed, currentSegment, lesson.segments.length, nextSegment, transitionState]);
-
-  // Text-to-speech with ElevenLabs
-  useEffect(() => {
-    if (!content?.text || !isPlaying) return;
-
-    const playElevenLabsSpeech = async () => {
+    const playSegment = async () => {
       try {
-        // Call our API endpoint that uses ElevenLabs
+        // Fetch audio from ElevenLabs
+        console.log('[LessonPlayer] Fetching audio...');
         const response = await fetch('/api/tts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            text: content.text,
-            speed: speed,
-          }),
+          body: JSON.stringify({ text: content.text }),
         });
 
-        if (response.ok) {
-          const audioBlob = await response.blob();
-          const audioUrl = URL.createObjectURL(audioBlob);
-          const audio = new Audio(audioUrl);
-          audio.playbackRate = speed;
-          audio.volume = 0.8;
+        if (!response.ok || isCancelled) {
+          throw new Error('Audio fetch failed');
+        }
+
+        const audioBlob = await response.blob();
+        const audioUrl = URL.createObjectURL(audioBlob);
+        
+        if (isCancelled) {
+          URL.revokeObjectURL(audioUrl);
+          return;
+        }
+
+        // Create and play audio
+        const audio = new Audio(audioUrl);
+        audioRef.current = audio;
+        
+        // Animate text based on audio duration
+        audio.addEventListener('loadedmetadata', () => {
+          if (isCancelled) return;
           
-          audio.onended = () => {
-            console.log('[LessonPlayer] ElevenLabs speech ended');
-            URL.revokeObjectURL(audioUrl);
+          const duration = audio.duration * 1000;
+          const timePerWord = duration / words.length;
+          
+          const animateWords = () => {
+            if (isCancelled || !audioRef.current) return;
+            
+            if (wordIndex < words.length) {
+              setDisplayText(words.slice(0, wordIndex + 1).join(' '));
+              setCurrentWordIndex(wordIndex);
+              wordIndex++;
+              
+              const startTime = performance.now();
+              const animate = () => {
+                if (performance.now() - startTime >= timePerWord) {
+                  animateWords();
+                } else if (!isCancelled) {
+                  animationFrameRef.current = requestAnimationFrame(animate);
+                }
+              };
+              animationFrameRef.current = requestAnimationFrame(animate);
+            }
           };
           
-          await audio.play();
-        } else {
-          // Fallback to browser TTS if ElevenLabs fails
-          console.log('[LessonPlayer] ElevenLabs failed, using browser TTS');
-          const utterance = new SpeechSynthesisUtterance(content.text);
-          utterance.rate = speed;
-          utterance.pitch = 1.0;
-          utterance.volume = 0.8;
-          speechSynthesis.speak(utterance);
-        }
+          animateWords();
+        });
+
+        // Handle audio end
+        audio.addEventListener('ended', () => {
+          if (isCancelled) return;
+          
+          console.log('[LessonPlayer] Segment complete');
+          setDisplayText(content.text);
+          URL.revokeObjectURL(audioUrl);
+          
+          // Move to next segment
+          setTimeout(() => {
+            if (currentSegment < lesson.segments.length - 1) {
+              nextSegment();
+              setDisplayText('');
+              setCurrentWordIndex(0);
+            } else {
+              transitionState({ type: 'COMPLETE', timestamp: Date.now() });
+            }
+          }, 1500);
+        });
+
+        await audio.play();
+        console.log('[LessonPlayer] Playing audio');
+        
       } catch (error) {
-        console.error('[LessonPlayer] TTS error:', error);
-        // Fallback to browser TTS
-        const utterance = new SpeechSynthesisUtterance(content.text);
-        utterance.rate = speed;
-        speechSynthesis.speak(utterance);
+        if (isCancelled) return;
+        
+        console.error('[LessonPlayer] Error:', error);
+        // Fallback: Just show text without audio
+        const showTextFallback = () => {
+          const interval = setInterval(() => {
+            if (wordIndex < words.length && !isCancelled) {
+              setDisplayText(words.slice(0, wordIndex + 1).join(' '));
+              setCurrentWordIndex(wordIndex);
+              wordIndex++;
+            } else {
+              clearInterval(interval);
+              if (!isCancelled) {
+                setTimeout(() => {
+                  if (currentSegment < lesson.segments.length - 1) {
+                    nextSegment();
+                  } else {
+                    transitionState({ type: 'COMPLETE', timestamp: Date.now() });
+                  }
+                }, 1500);
+              }
+            }
+          }, 150);
+          
+          return () => clearInterval(interval);
+        };
+        
+        const cleanup = showTextFallback();
+        return cleanup;
       }
     };
 
-    playElevenLabsSpeech();
+    playSegment();
 
+    // Cleanup function
     return () => {
-      speechSynthesis.cancel();
+      isCancelled = true;
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
     };
-  }, [content, isPlaying, speed]);
+  }, [isPlaying, currentSegment, content, lesson.segments.length, nextSegment, transitionState]);
 
   // Handle voice commands
   useEffect(() => {
     if (sensing.lastVoiceCommand === 'SHOW_CODE') {
       setShowCode(true);
     } else if (sensing.lastVoiceCommand === 'PAUSE') {
-      setIsPlaying(false);
-      speechSynthesis.pause();
+      handlePause();
     } else if (sensing.lastVoiceCommand === 'SKIP') {
+      handleSkip();
+    }
+  }, [sensing.lastVoiceCommand]);
+
+  const handlePause = () => {
+    setIsPlaying(false);
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+  };
+
+  const handlePlay = () => {
+    if (audioRef.current && audioRef.current.paused) {
+      audioRef.current.play();
+    }
+    setIsPlaying(true);
+  };
+
+  const handleSkip = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    if (currentSegment < lesson.segments.length - 1) {
       nextSegment();
-    }
-  }, [sensing.lastVoiceCommand, nextSegment]);
-
-  // Handle confusion/distraction
-  useEffect(() => {
-    if (sensing.face?.confused && sensing.face.confidence > 0.7) {
-      // Show encouragement
-      console.log('[LessonPlayer] User seems confused, adapting...');
-    }
-
-    if (sensing.gaze?.outsideViewport && sensing.gaze.duration > 2000) {
-      // Pause and alert
-      setIsPlaying(false);
-      speechSynthesis.pause();
-    }
-  }, [sensing]);
-
-  const togglePlayPause = () => {
-    setIsPlaying(!isPlaying);
-    if (isPlaying) {
-      speechSynthesis.pause();
+      setDisplayText('');
+      setCurrentWordIndex(0);
     } else {
-      speechSynthesis.resume();
+      transitionState({ type: 'COMPLETE', timestamp: Date.now() });
     }
   };
 
   return (
     <div className="relative w-full max-w-4xl mx-auto">
-      {/* Main video-like container */}
       <div className="aspect-[9/16] lg:aspect-[16/9] bg-gradient-to-br from-prof-purple via-prof-blue to-prof-pink rounded-2xl overflow-hidden shadow-2xl">
         <div className="relative h-full p-8 flex flex-col justify-center">
           
@@ -184,7 +235,7 @@ export function LessonPlayer({ lesson, onComplete }: LessonPlayerProps) {
             Segment {currentSegment + 1} / {lesson.segments.length}
           </div>
 
-          {/* Main content area */}
+          {/* Main content */}
           <AnimatePresence mode="wait">
             <motion.div
               key={`${currentSegment}-${currentVariant}`}
@@ -193,31 +244,12 @@ export function LessonPlayer({ lesson, onComplete }: LessonPlayerProps) {
               exit={{ opacity: 0, y: -20 }}
               className="flex-1 flex flex-col justify-center items-center text-center"
             >
-              {/* Animated text */}
               <div className="max-w-3xl">
                 <motion.p className="text-2xl lg:text-4xl font-bold text-white leading-relaxed">
-                  {displayText.split(' ').map((word, index) => {
-                    const isEmphasized = content?.emphasis?.includes(word.toLowerCase());
-                    const isCurrent = index === currentWordIndex - 1;
-                    
-                    return (
-                      <motion.span
-                        key={index}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        transition={{ delay: index * 0.05 }}
-                        className={`inline-block mr-2 ${
-                          isEmphasized ? 'text-prof-yellow' : ''
-                        } ${isCurrent ? 'scale-110' : ''}`}
-                      >
-                        {word}
-                      </motion.span>
-                    );
-                  })}
+                  {displayText || (isPlaying ? 'Loading...' : 'Press play to start')}
                 </motion.p>
               </div>
 
-              {/* Code display */}
               {showCode && content?.code && (
                 <motion.div
                   initial={{ opacity: 0, scale: 0.9 }}
@@ -234,44 +266,19 @@ export function LessonPlayer({ lesson, onComplete }: LessonPlayerProps) {
             </motion.div>
           </AnimatePresence>
 
-          {/* Attention alerts */}
-          <AnimatePresence>
-            {sensing.gaze?.outsideViewport && sensing.gaze.duration > 2000 && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.8 }}
-                className="absolute inset-0 bg-black/50 flex items-center justify-center"
-              >
-                <div className="bg-white rounded-xl p-6 text-center">
-                  <p className="text-2xl font-bold text-gray-900 mb-2">
-                    👋 Hey! Eyes here!
-                  </p>
-                  <p className="text-gray-600">This part is important!</p>
-                  <button
-                    onClick={() => setIsPlaying(true)}
-                    className="mt-4 px-6 py-2 bg-prof-purple text-white rounded-lg"
-                  >
-                    Continue
-                  </button>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
           {/* Controls */}
           <div className="absolute bottom-0 left-0 right-0 bg-black/20 backdrop-blur p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <button
-                  onClick={togglePlayPause}
+                  onClick={() => isPlaying ? handlePause() : handlePlay()}
                   className="p-3 bg-white/20 hover:bg-white/30 rounded-full transition"
                 >
                   {isPlaying ? <Pause size={24} /> : <Play size={24} />}
                 </button>
                 
                 <button
-                  onClick={() => nextSegment()}
+                  onClick={handleSkip}
                   className="p-3 bg-white/20 hover:bg-white/30 rounded-full transition"
                 >
                   <SkipForward size={24} />
@@ -288,7 +295,7 @@ export function LessonPlayer({ lesson, onComplete }: LessonPlayerProps) {
 
               <div className="flex items-center gap-2 text-white">
                 <Volume2 size={20} />
-                <span className="text-sm">Speed: {speed.toFixed(1)}x</span>
+                <span className="text-sm">ElevenLabs Voice</span>
               </div>
             </div>
 
@@ -296,7 +303,9 @@ export function LessonPlayer({ lesson, onComplete }: LessonPlayerProps) {
             <div className="mt-3 h-1 bg-white/20 rounded-full overflow-hidden">
               <motion.div
                 className="h-full bg-white"
-                animate={{ width: `${(currentWordIndex / (content?.text.split(' ').length || 1)) * 100}%` }}
+                animate={{ 
+                  width: `${(currentWordIndex / (content?.text.split(' ').length || 1)) * 100}%` 
+                }}
                 transition={{ duration: 0.3 }}
               />
             </div>
@@ -315,7 +324,7 @@ export function LessonPlayer({ lesson, onComplete }: LessonPlayerProps) {
           >
             <p className="text-blue-500 flex items-center gap-2">
               <Brain size={20} />
-              I see that face - let me explain this differently...
+              Let me explain this more simply...
             </p>
           </motion.div>
         )}
@@ -329,7 +338,7 @@ export function LessonPlayer({ lesson, onComplete }: LessonPlayerProps) {
           >
             <p className="text-purple-500 flex items-center gap-2">
               <Sparkles size={20} />
-              Let's dive deeper into the details...
+              Let's dive deeper...
             </p>
           </motion.div>
         )}

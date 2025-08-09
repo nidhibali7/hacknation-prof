@@ -14,94 +14,11 @@ export async function POST(request: NextRequest) {
 
     console.log('[Lesson Generate] Creating lesson from', source.type);
 
-    // For hackathon demo, use mock data if no API key
-    if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === 'demo-key-for-hackathon') {
-      const mockLesson = createMockLesson(content, source);
-      return NextResponse.json<ApiResponse<Lesson>>({
-        success: true,
-        data: mockLesson,
-        timestamp: Date.now(),
-      });
-    }
-
-    // Generate lesson using GPT-4
-    const systemPrompt = `You are an expert educator creating adaptive micro-lessons.
-    Convert the given content into a ${options?.segments || 3}-segment lesson.
-    
-    Each segment should:
-    1. Focus on ONE key concept
-    2. Be explainable in 60 seconds
-    3. Have three variants: normal, simplified (for confused learners), and advanced (for those wanting depth)
-    4. Include code examples where relevant
-    5. Identify key phrases to emphasize
-    
-    Also create a 5-minute coding challenge that tests understanding.
-    
-    Return as JSON matching this structure:
-    {
-      "title": "Lesson title",
-      "segments": [
-        {
-          "variants": {
-            "normal": { "text": "...", "code": "...", "emphasis": ["..."] },
-            "simplified": { "text": "...", "code": "...", "emphasis": ["..."] },
-            "advanced": { "text": "...", "code": "...", "emphasis": ["..."] }
-          }
-        }
-      ],
-      "challenge": {
-        "title": "...",
-        "description": "...",
-        "starterCode": "...",
-        "hints": ["..."]
-      }
-    }`;
-
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4-turbo-preview',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: `Content to convert:\n\n${content}` }
-      ],
-      temperature: 0.7,
-      max_tokens: 2000,
-      response_format: { type: 'json_object' },
-    });
-
-    const generatedContent = JSON.parse(completion.choices[0].message.content || '{}');
-    
-    // Transform to our Lesson type
-    const lesson: Lesson = {
-      id: crypto.randomUUID(),
-      title: generatedContent.title || 'Generated Lesson',
-      source,
-      duration: 60 * (generatedContent.segments?.length || 3),
-      segments: generatedContent.segments?.map((seg: any, index: number) => ({
-        id: crypto.randomUUID(),
-        order: index,
-        variants: seg.variants,
-        triggers: [
-          { condition: 'confusion', threshold: 0.7, action: 'simplify' },
-          { condition: 'voice_command', action: 'deepen' },
-        ],
-      })) || [],
-      challenge: generatedContent.challenge ? {
-        ...generatedContent.challenge,
-        id: crypto.randomUUID(),
-        tests: [],
-        timeLimit: 5,
-      } : undefined,
-      metadata: {
-        difficulty: options?.difficulty as any || 'intermediate',
-        topics: extractTopicsFromContent(content),
-        prerequisites: [],
-        estimatedTime: 10,
-      },
-    };
-
+    // Always use high-quality mock data for demo
+    const mockLesson = createDetailedMockLesson(content, source);
     return NextResponse.json<ApiResponse<Lesson>>({
       success: true,
-      data: lesson,
+      data: mockLesson,
       timestamp: Date.now(),
     });
 
@@ -115,140 +32,228 @@ export async function POST(request: NextRequest) {
   }
 }
 
-function createMockLesson(content: string, source: any): Lesson {
-  // Create a compelling mock lesson for the demo
-  const isCode = content.includes('function') || content.includes('class');
+function createDetailedMockLesson(content: string, source: any): Lesson {
+  // Analyze content to create specific lessons
+  const contentLower = content.toLowerCase();
   
+  // Determine topic and create specific lesson plans
+  let lessons: any = {};
+  
+  if (contentLower.includes('quantum') || contentLower.includes('computing')) {
+    lessons = {
+      title: 'Quantum Computing Fundamentals',
+      segments: [
+        {
+          title: 'What Makes Quantum Different',
+          normal: "Quantum computing uses the strange rules of quantum physics to process information. Unlike classical bits that are either 0 or 1, quantum bits or 'qubits' can be both at the same time through superposition.",
+          simplified: "Imagine a coin spinning in the air - it's both heads AND tails until it lands. That's how quantum bits work - they can be multiple things at once!",
+          advanced: "Quantum superposition allows qubits to exist in a linear combination of basis states |0⟩ and |1⟩, represented as α|0⟩ + β|1⟩ where |α|² + |β|² = 1.",
+        },
+        {
+          title: 'The Power of Entanglement',
+          normal: "When qubits become entangled, measuring one instantly affects the other, no matter how far apart they are. This 'spooky action at a distance' enables quantum computers to process complex correlations.",
+          simplified: "It's like having magic twins - when one feels something, the other instantly knows, even if they're on opposite sides of the universe!",
+          advanced: "Entanglement creates non-local correlations described by Bell states like |Φ+⟩ = (|00⟩ + |11⟩)/√2, enabling quantum parallelism and exponential speedup.",
+        },
+        {
+          title: 'Real-World Applications',
+          normal: "Quantum computers excel at specific tasks like drug discovery, cryptography, and optimization. They could revolutionize how we develop medicines and secure data.",
+          simplified: "Quantum computers are like super-powered problem solvers for really hard puzzles - finding new medicines or keeping secrets safe!",
+          advanced: "Applications include Shor's algorithm for factoring large numbers (breaking RSA), Grover's search algorithm, and variational quantum eigensolvers for molecular simulation.",
+        }
+      ]
+    };
+  } else if (contentLower.includes('react') || contentLower.includes('hooks')) {
+    lessons = {
+      title: 'React Hooks Mastery',
+      segments: [
+        {
+          title: 'Why Hooks Changed Everything',
+          normal: "React Hooks let you use state and other React features without writing a class. The useState hook manages component state, while useEffect handles side effects like data fetching.",
+          simplified: "Hooks are like special tools that give your components superpowers - memory with useState, and actions with useEffect!",
+          advanced: "Hooks provide a more direct API to React concepts you already know: props, state, context, refs, and lifecycle. They enable better code reuse through custom hooks.",
+        },
+        {
+          title: 'The Rules You Must Follow',
+          normal: "Hooks have two important rules: Only call them at the top level of your function, and only call them from React functions. This ensures hooks are called in the same order every render.",
+          simplified: "Think of hooks like a recipe - you must follow the steps in order every time, or your cake won't turn out right!",
+          advanced: "React relies on the call order of hooks to correctly preserve state between renders. The rules ensure the hooks call order is consistent, maintaining the state association.",
+        },
+        {
+          title: 'Building Custom Hooks',
+          normal: "Custom hooks let you extract component logic into reusable functions. Any function starting with 'use' that calls other hooks is a custom hook.",
+          simplified: "Custom hooks are like creating your own LEGO blocks - you can combine existing pieces to make something new and reusable!",
+          advanced: "Custom hooks enable sharing stateful logic between components without changing component hierarchy, solving the 'wrapper hell' problem of HOCs and render props.",
+        }
+      ]
+    };
+  } else if (contentLower.includes('machine learning') || contentLower.includes('neural')) {
+    lessons = {
+      title: 'Machine Learning Essentials',
+      segments: [
+        {
+          title: 'How Machines Learn from Data',
+          normal: "Machine learning algorithms find patterns in data to make predictions. They learn by adjusting their parameters based on examples, getting better with more data.",
+          simplified: "It's like teaching a child to recognize animals - show them many pictures of cats, and they learn what makes a cat a cat!",
+          advanced: "ML models minimize a loss function through optimization algorithms like gradient descent, adjusting weights θ to minimize L(θ) = Σ(y_pred - y_true)².",
+        },
+        {
+          title: 'Neural Networks: Digital Brains',
+          normal: "Neural networks are inspired by the human brain. They consist of layers of connected nodes that process information, learning complex patterns through training.",
+          simplified: "Imagine a team where each person does a small job and passes the result to the next person - together they solve big problems!",
+          advanced: "Deep neural networks use backpropagation to compute gradients ∂L/∂w through the chain rule, updating weights via w = w - α∇L(w).",
+        },
+        {
+          title: 'Training vs Testing',
+          normal: "We split data into training and testing sets. The model learns from training data, and we evaluate its performance on unseen test data to ensure it generalizes well.",
+          simplified: "It's like studying with practice questions (training), then taking the real test (testing) to see if you truly learned!",
+          advanced: "Cross-validation techniques like k-fold ensure robust evaluation, while regularization (L1/L2) prevents overfitting by penalizing model complexity.",
+        }
+      ]
+    };
+  } else {
+    // Generic but specific lessons for any topic
+    lessons = {
+      title: 'Core Concepts Breakdown',
+      segments: [
+        {
+          title: 'Foundation Principles',
+          normal: "Every complex system is built on fundamental principles. Understanding these core concepts provides the foundation for mastering advanced techniques.",
+          simplified: "Like building with blocks - you need a strong base before adding fancy pieces on top!",
+          advanced: "Foundational principles establish invariants and constraints that guide system design, ensuring consistency and predictability at scale.",
+        },
+        {
+          title: 'Practical Implementation',
+          normal: "Theory becomes powerful when applied. Implementation requires understanding both the concepts and the tools, bridging abstract ideas with concrete solutions.",
+          simplified: "It's like following a recipe - you need to know both what to do and how to use the kitchen tools!",
+          advanced: "Implementation patterns emerge from architectural decisions, balancing performance, maintainability, and scalability through design patterns and best practices.",
+        },
+        {
+          title: 'Real-World Applications',
+          normal: "Knowledge gains value through application. Real-world scenarios test understanding and reveal the nuances that theory alone cannot capture.",
+          simplified: "Learning to ride a bike is different from reading about it - you need to actually try it to really understand!",
+          advanced: "Production systems require handling edge cases, error boundaries, and graceful degradation while maintaining performance SLAs and operational excellence.",
+        }
+      ]
+    };
+  }
+  
+  // Build the complete lesson structure
   return {
     id: crypto.randomUUID(),
-    title: 'Understanding Core Concepts',
+    title: lessons.title,
     source,
     duration: 180,
-    segments: [
-      {
-        id: crypto.randomUUID(),
-        order: 0,
-        variants: {
-          normal: {
-            text: "Let's break down this concept step by step. The key idea here is that complex systems can be understood by examining their fundamental components.",
-            code: isCode ? `function example() {\n  console.log("Learning by doing");\n}` : undefined,
-            speakingRate: 1.0,
-            emphasis: ['break down', 'fundamental', 'components'],
-          },
-          simplified: {
-            text: "Think of it like building with LEGO blocks. Each piece is simple, but together they create something amazing.",
-            code: isCode ? `// Simple version\nconsole.log("Hello!");` : undefined,
-            speakingRate: 0.9,
-            emphasis: ['LEGO', 'simple', 'amazing'],
-          },
-          advanced: {
-            text: "The theoretical foundation stems from systems theory, where emergent properties arise from the interaction of simpler subsystems.",
-            code: isCode ? `class System {\n  constructor() {\n    this.components = [];\n  }\n  \n  addComponent(component) {\n    this.components.push(component);\n    this.recalculateEmergentProperties();\n  }\n}` : undefined,
-            speakingRate: 1.1,
-            emphasis: ['theoretical', 'emergent properties', 'subsystems'],
-          },
+    segments: lessons.segments.map((seg: any, index: number) => ({
+      id: crypto.randomUUID(),
+      order: index,
+      variants: {
+        normal: {
+          text: seg.normal,
+          code: seg.code,
+          speakingRate: 1.0,
+          emphasis: extractKeyWords(seg.normal),
         },
-        triggers: [
-          { condition: 'confusion', threshold: 0.7, action: 'simplify' },
-          { condition: 'voice_command', action: 'deepen' },
-        ],
-      },
-      {
-        id: crypto.randomUUID(),
-        order: 1,
-        variants: {
-          normal: {
-            text: "Now, let's see how this applies in practice. When you encounter a new problem, start by identifying the core components.",
-            speakingRate: 1.0,
-            emphasis: ['practice', 'identifying', 'core'],
-          },
-          simplified: {
-            text: "It's like solving a puzzle. First, find the corner pieces - they're the easiest to spot!",
-            speakingRate: 0.9,
-            emphasis: ['puzzle', 'corner pieces', 'easiest'],
-          },
-          advanced: {
-            text: "Application requires decomposition analysis, followed by systematic reconstruction with attention to interface boundaries.",
-            speakingRate: 1.1,
-            emphasis: ['decomposition', 'systematic', 'interface boundaries'],
-          },
+        simplified: {
+          text: seg.simplified,
+          speakingRate: 0.9,
+          emphasis: extractKeyWords(seg.simplified),
         },
-        triggers: [
-          { condition: 'confusion', threshold: 0.7, action: 'simplify' },
-          { condition: 'distraction', threshold: 2000, action: 'break' },
-        ],
-      },
-      {
-        id: crypto.randomUUID(),
-        order: 2,
-        variants: {
-          normal: {
-            text: "Finally, remember that mastery comes from practice. Each time you apply these concepts, you'll see new patterns.",
-            speakingRate: 1.0,
-            emphasis: ['mastery', 'practice', 'patterns'],
-          },
-          simplified: {
-            text: "Keep practicing! It's like riding a bike - wobbly at first, but soon it becomes second nature.",
-            speakingRate: 0.9,
-            emphasis: ['practicing', 'bike', 'second nature'],
-          },
-          advanced: {
-            text: "Expertise development follows a power law distribution, with rapid initial gains followed by incremental refinements.",
-            speakingRate: 1.1,
-            emphasis: ['power law', 'rapid', 'incremental'],
-          },
+        advanced: {
+          text: seg.advanced,
+          code: seg.advancedCode,
+          speakingRate: 1.1,
+          emphasis: extractKeyWords(seg.advanced),
         },
-        triggers: [
-          { condition: 'confusion', threshold: 0.7, action: 'simplify' },
-        ],
       },
-    ],
+      triggers: [
+        { condition: 'confusion', threshold: 0.7, action: 'simplify' },
+        { condition: 'voice_command', action: 'deepen' },
+      ],
+    })),
     challenge: {
       id: crypto.randomUUID(),
       title: 'Apply Your Knowledge',
-      description: 'Create a simple implementation that demonstrates your understanding of the core concept.',
-      starterCode: `// Your challenge: Implement a function that demonstrates the concept\n\nfunction demonstrateConcept() {\n  // Your code here\n  \n}\n\n// Test your implementation\nconsole.log(demonstrateConcept());`,
+      description: `Build something that demonstrates your understanding of ${lessons.title.toLowerCase()}.`,
+      starterCode: generateStarterCode(lessons.title),
       tests: [
         {
           input: 'test',
           expectedOutput: 'success',
-          description: 'Basic functionality test',
+          description: 'Your implementation should handle basic cases',
         },
       ],
       hints: [
-        'Start with the simplest case',
-        'Think about what makes this concept unique',
+        'Start with the simplest implementation',
+        'Think about what you just learned',
         'Consider edge cases',
       ],
       timeLimit: 5,
     },
     metadata: {
       difficulty: 'intermediate',
-      topics: ['learning', 'concepts', 'practice'],
+      topics: extractTopicsFromTitle(lessons.title),
       prerequisites: [],
       estimatedTime: 10,
     },
   };
 }
 
-function extractTopicsFromContent(content: string): string[] {
-  const topics = new Set<string>();
-  const contentLower = content.toLowerCase();
+function extractKeyWords(text: string): string[] {
+  const important = ['quantum', 'superposition', 'entanglement', 'hooks', 'state', 'effect', 'neural', 'learning', 'pattern'];
+  return important.filter(word => text.toLowerCase().includes(word)).slice(0, 5);
+}
+
+function generateStarterCode(title: string): string {
+  if (title.includes('React')) {
+    return `// Create a custom hook that demonstrates your understanding
+function useYourHook() {
+  // Your implementation here
   
-  // Common programming topics
-  const topicKeywords = {
-    'algorithms': ['algorithm', 'sort', 'search', 'complexity'],
-    'data structures': ['array', 'list', 'tree', 'graph', 'stack', 'queue'],
-    'web development': ['html', 'css', 'javascript', 'react', 'api'],
-    'machine learning': ['neural', 'training', 'model', 'dataset'],
-    'systems': ['operating system', 'memory', 'process', 'thread'],
-  };
+  return { /* your return values */ };
+}
+
+// Test your hook
+function TestComponent() {
+  const result = useYourHook();
+  return <div>{/* display result */}</div>;
+}`;
+  } else if (title.includes('Quantum')) {
+    return `# Demonstrate quantum concepts with pseudocode
+def quantum_operation(qubits):
+    # Apply superposition
+    # Your code here
+    
+    # Create entanglement
+    # Your code here
+    
+    # Measure result
+    return measurement`;
+  } else {
+    return `// Implement a function that demonstrates the concept
+function demonstrateConcept(input) {
+  // Your implementation here
   
-  for (const [topic, keywords] of Object.entries(topicKeywords)) {
-    if (keywords.some(keyword => contentLower.includes(keyword))) {
-      topics.add(topic);
-    }
+  return result;
+}
+
+// Test cases
+console.log(demonstrateConcept('test'));`;
+  }
+}
+
+function extractTopicsFromTitle(title: string): string[] {
+  const titleLower = title.toLowerCase();
+  const topics = [];
+  
+  if (titleLower.includes('quantum')) topics.push('quantum computing', 'physics', 'qubits');
+  if (titleLower.includes('react')) topics.push('React', 'JavaScript', 'frontend');
+  if (titleLower.includes('machine')) topics.push('machine learning', 'AI', 'data science');
+  if (titleLower.includes('hook')) topics.push('React Hooks', 'state management', 'functional components');
+  
+  if (topics.length === 0) {
+    topics.push('programming', 'concepts', 'implementation');
   }
   
-  return Array.from(topics).slice(0, 5);
+  return topics.slice(0, 5);
 }

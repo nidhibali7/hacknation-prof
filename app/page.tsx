@@ -167,13 +167,16 @@ export default function HomePage() {
               {inputType === 'pdf' && (
                 <div>
                   <label className="block text-sm text-gray-400 mb-2">
-                    Upload PDF
+                    Upload PDF or Image
                   </label>
                   <div className="relative">
                     <input
                       type="file"
-                      accept=".pdf"
-                      onChange={(e) => setPdfFile(e.target.files?.[0] || null)}
+                      accept=".pdf,image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        setPdfFile(file || null);
+                      }}
                       className="hidden"
                       id="pdf-upload"
                       required
@@ -185,19 +188,35 @@ export default function HomePage() {
                       {pdfFile ? (
                         <div>
                           <Upload size={32} className="mx-auto mb-2 text-prof-purple" />
-                          <p className="text-white">{pdfFile.name}</p>
+                          <p className="text-white">
+                            {(() => {
+                              // Clean up long macOS temp paths
+                              const name = pdfFile.name;
+                              if (name.includes('/')) {
+                                // Extract just the filename from path
+                                const filename = name.split('/').pop() || name;
+                                // Further clean if it's a Screenshot
+                                if (filename.includes('Screenshot')) {
+                                  return `Screenshot.${filename.split('.').pop()}`;
+                                }
+                                return filename;
+                              }
+                              return name;
+                            })()}
+                          </p>
                           <p className="text-sm text-gray-400 mt-1">
                             {(pdfFile.size / 1024 / 1024).toFixed(2)} MB
+                            {pdfFile.type.includes('image') && ' (Image)'}
                           </p>
                         </div>
                       ) : (
                         <div>
                           <Upload size={32} className="mx-auto mb-2 text-gray-500" />
                           <p className="text-gray-400">
-                            Click to upload PDF
+                            Click to upload PDF or Image
                           </p>
                           <p className="text-sm text-gray-500 mt-1">
-                            Max 10MB
+                            PDF, PNG, JPG (Max 10MB)
                           </p>
                         </div>
                       )}
