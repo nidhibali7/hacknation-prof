@@ -79,6 +79,8 @@ export default function LessonPage() {
   const startLearning = () => {
     setShowPlan(false);
     setCurrentLesson(lessons[0]);
+    // Track start time for completion stats
+    localStorage.setItem('lessonStartTime', Date.now().toString());
   };
 
   if (!lessons.length) {
@@ -133,15 +135,13 @@ export default function LessonPage() {
                           {lesson.title}
                         </h3>
                         
-                        {/* Show actual segment titles */}
+                        {/* Show actual segment concepts */}
                         <div className="space-y-1 mb-3">
                           {lesson.segments.map((segment, segIndex) => (
-                            <div key={segment.id} className="flex items-center gap-2 text-xs text-gray-400">
+                            <div key={segment.id} className="flex items-center gap-2 text-sm text-gray-300">
                               <span className="text-prof-purple">→</span>
-                              <span>
-                                {/* Extract first sentence as segment title */}
-                                {segment.variants.normal.text.split('.')[0]}
-                                {segment.variants.normal.text.split('.')[0].length > 50 ? '...' : ''}
+                              <span className="font-medium">
+                                {segment.concept}
                               </span>
                             </div>
                           ))}

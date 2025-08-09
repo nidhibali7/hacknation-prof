@@ -14,6 +14,7 @@ export interface Lesson {
 export interface LessonSegment {
   id: string;
   order: number;
+  concept: string; // The specific concept being taught
   variants: {
     normal: SegmentContent;
     simplified: SegmentContent;
