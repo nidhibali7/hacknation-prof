@@ -89,7 +89,7 @@ export function CameraAttention({
                             data.y < 0 || data.y > window.innerHeight,
           duration: elapsedTime,
           // Raw score; will be aggregated before emitting
-          attentionScore: calculateAttentionScore(data.x, data.y),
+          attentionScore: calculateAttentionScore(data.x, data.y, faceAggRef.current.lastFace),
           distractionEvents: 0, // Will be calculated over time
         };
         // Aggregate attention and only emit every 2000ms
@@ -403,6 +403,17 @@ function analyzeFaceExpression(landmarks: any[]): FaceData {
   // Calculate key facial features
   // These are approximations based on landmark positions
   
+  // Calculate face size as percentage of frame
+  const faceMinX = Math.min(...landmarks.map(p => p.x));
+  const faceMaxX = Math.max(...landmarks.map(p => p.x));
+  const faceMinY = Math.min(...landmarks.map(p => p.y));
+  const faceMaxY = Math.max(...landmarks.map(p => p.y));
+  
+  const faceWidth = faceMaxX - faceMinX;
+  const faceHeight = faceMaxY - faceMinY;
+  const faceArea = faceWidth * faceHeight;
+  const facePercentage = faceArea * 100; // Convert to percentage
+  
   // Eyebrow furrow (landmarks 70, 63 for left, 296, 293 for right)
   const leftBrow = landmarks[70].y - landmarks[63].y;
   const rightBrow = landmarks[296].y - landmarks[293].y;
@@ -434,15 +445,18 @@ function analyzeFaceExpression(landmarks: any[]): FaceData {
   const lookingAway = devX > 0.3;
   const lookCenterNorm = Math.max(0, Math.min(1, 1 - devX / 0.4));
 
+  // Primary engagement detection: face takes up >25% of frame
+  const engagedBySize = facePercentage > 25;
+  
   // Continuous engagement score combines multiple cues
   let engagement = 0.4 * lookCenterNorm + 0.3 * eyeOpen + 0.2 * leanNorm + 0.1 * smileNorm;
   if (lookingAway) engagement *= 0.4; // heavy penalty when off-screen
   if (confused) engagement *= 0.75; // mild penalty for confusion
   engagement = Math.max(0, Math.min(1, engagement));
 
-  // Derive booleans from engagement
-  const engaged = engagement >= 0.6;
-  const bored = engagement <= 0.3;
+  // Override engagement if face size indicates high engagement
+  const engaged = engagedBySize || engagement >= 0.6;
+  const bored = !engagedBySize && engagement <= 0.3;
   
   return {
     confused,
@@ -462,7 +476,8 @@ function analyzeFaceExpression(landmarks: any[]): FaceData {
 }
 
 // Calculate attention score based on gaze position
-function calculateAttentionScore(x: number, y: number): number {
+function calculateAttentionScore(x: number, y: number, faceData?: any): number {
+  // Base gaze attention calculation
   const centerX = window.innerWidth / 2;
   const centerY = window.innerHeight / 2;
   
@@ -474,7 +489,27 @@ function calculateAttentionScore(x: number, y: number): number {
     Math.pow(centerX, 2) + Math.pow(centerY, 2)
   );
   
-  return Math.max(0, Math.min(100, 100 * (1 - distance / maxDistance)));
+  const gazeScore = Math.max(0, Math.min(100, 100 * (1 - distance / maxDistance)));
+  
+  // Apply facial expression modifiers
+  if (faceData) {
+    // If engaged, set attention to 100% regardless of gaze position
+    if (faceData.engaged) {
+      return 100;
+    }
+    
+    // If confused, significantly decrease attention
+    if (faceData.confused) {
+      return Math.max(0, gazeScore * 0.3); // Reduce to 30% of gaze score
+    }
+    
+    // If bored, moderately decrease attention
+    if (faceData.bored) {
+      return Math.max(0, gazeScore * 0.6); // Reduce to 60% of gaze score
+    }
+  }
+  
+  return gazeScore;
 }
 
 // Draw face mesh for debugging
