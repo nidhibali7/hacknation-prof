@@ -116,7 +116,7 @@ Return a teaching plan as JSON:
 }`;
 
   const analysisMessage = await anthropic.messages.create({
-    model: 'claude-3-opus-20240229',
+    model: 'claude-3-5-sonnet-20241022',
     max_tokens: 1000,
     temperature: 0.5,
     messages: [{
@@ -190,7 +190,7 @@ Output JSON:
 }`;
 
   const message = await anthropic.messages.create({
-    model: 'claude-3-opus-20240229',
+    model: 'claude-3-5-sonnet-20241022',
     max_tokens: 4000,
     temperature: 0.7,
     messages: [{
@@ -245,7 +245,7 @@ Return analysis as JSON:
 }`;
 
   const analysisCompletion = await openai.chat.completions.create({
-    model: 'gpt-4-turbo-preview',
+    model: 'gpt-4o',
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: analysisPrompt }
@@ -313,7 +313,7 @@ Return as JSON:
 }`;
 
   const completion = await openai.chat.completions.create({
-    model: 'gpt-4-turbo-preview',
+    model: 'gpt-4o',
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt }
@@ -402,19 +402,30 @@ async function generateFromContent(
       hook: hook.substring(0, 100),
       normal: {
         text: expandedNormal,
-        example: extractExample(text),
-        application: `This is used in practice when ${extractApplication(text)}`,
-        memoryTrick: `Remember: ${keywords[0] || 'key'} connects to ${keywords[1] || 'concept'}`
+        hook: seg.hook || seg.normal?.hook,
+        example: seg.normal?.example,
+        application: seg.normal?.application,
+        memoryTrick: seg.normal?.memoryTrick,
+        code: seg.normal?.code,
+        speakingRate: 1.0,
+        emphasis: seg.keywords || extractKeywords(normalContent),
       },
       simplified: {
         text: simplifiedText,
-        example: createSimpleExample(conceptTitle),
-        memoryTrick: `Think of it like ${createAnalogy(conceptTitle).substring(0, 50)}`
+        hook: seg.simplified?.hook || seg.hook,
+        example: seg.simplified?.example,
+        memoryTrick: seg.simplified?.memoryTrick,
+        speakingRate: 0.9,
+        emphasis: (seg.keywords || []).slice(0, 3),
       },
       advanced: {
         text: advancedText,
-        code: extractCode(text),
-        theory: extractTechnicalAspects(text)
+        hook: seg.advanced?.hook || seg.hook,
+        code: seg.advanced?.code || seg.code,
+        example: seg.advanced?.theory || seg.advanced?.example,
+        application: seg.advanced?.application,
+        speakingRate: 1.1,
+        emphasis: [...(seg.keywords || []), ...(seg.technicalTerms || [])],
       },
       keywords: keywords
     };
@@ -450,7 +461,7 @@ async function generateFromContent(
   const result = {
     title: extractTitle(content) || 'Key Concepts',
     segments: segments.slice(0, 3),
-    mainTopics: Array.from(keywords).slice(0, 5)
+    mainTopics: extractTopics(content).slice(0, 5)
   };
 
   return transformToLesson(result, source, content);
