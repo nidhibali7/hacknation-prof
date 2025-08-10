@@ -1,5 +1,11 @@
 'use client';
 
+// Audio Caching Strategy:
+// - Each segment+variant combination gets a unique cache key
+// - Audio is only fetched once per unique content
+// - Next segment's normal variant is prefetched while current plays
+// - This reduces TTS API calls from ~7 per lesson to ~2-3 per lesson
+
 import { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '@/store/useAppStore';
@@ -9,6 +15,23 @@ import { Play, Pause, SkipForward, Volume2, Code, Brain, Sparkles } from 'lucide
 interface LessonPlayerProps {
   lesson: Lesson;
   onComplete: () => void;
+}
+
+// Cache for audio URLs to prevent duplicate TTS calls
+const audioCache = new Map<string, string>();
+
+// Clean up old audio URLs to prevent memory leaks
+const cleanupAudioCache = () => {
+  console.log('[LessonPlayer] Cleaning up audio cache, size:', audioCache.size);
+  audioCache.forEach((url) => {
+    URL.revokeObjectURL(url);
+  });
+  audioCache.clear();
+};
+
+// Clean cache when window unloads
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', cleanupAudioCache);
 }
 
 export function LessonPlayer({ lesson, onComplete }: LessonPlayerProps) {
@@ -26,12 +49,89 @@ export function LessonPlayer({ lesson, onComplete }: LessonPlayerProps) {
   const [currentWordIndex, setCurrentWordIndex] = useState(0);
   const [showCode, setShowCode] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
+  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
   
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const currentContentKeyRef = useRef<string | null>(null);
+  const prefetchedKeysRef = useRef<Set<string>>(new Set());
 
   const segment = lesson.segments[currentSegment];
   const content = segment?.variants[currentVariant];
+
+  // Generate unique key for caching audio
+  const getContentKey = (segmentIndex: number, variant: string): string => {
+    return `${lesson.id}-${segmentIndex}-${variant}`;
+  };
+
+  // Fetch and cache audio
+  const fetchAndCacheAudio = async (text: string, key: string): Promise<string | null> => {
+    // Check if already cached
+    if (audioCache.has(key)) {
+      console.log('[LessonPlayer] Using cached audio for:', key);
+      return audioCache.get(key)!;
+    }
+
+    try {
+      console.log('[LessonPlayer] Fetching audio for:', key);
+      const response = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Audio fetch failed');
+      }
+
+      const audioBlob = await response.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
+      
+      // Cache the URL
+      audioCache.set(key, audioUrl);
+      return audioUrl;
+    } catch (error) {
+      console.error('[LessonPlayer] Error fetching audio:', error);
+      return null;
+    }
+  };
+
+  // Prefetch next segment's normal variant only
+  const prefetchNextSegment = async () => {
+    try {
+      if (currentSegment < lesson.segments.length - 1) {
+        const nextSegmentIndex = currentSegment + 1;
+        const nextKey = getContentKey(nextSegmentIndex, 'normal');
+        
+        // Only prefetch if not already done
+        if (!prefetchedKeysRef.current.has(nextKey) && !audioCache.has(nextKey)) {
+          prefetchedKeysRef.current.add(nextKey);
+          const nextSegment = lesson.segments[nextSegmentIndex];
+          const nextContent = nextSegment?.variants?.normal;
+          if (nextContent?.text) {
+            console.log('[LessonPlayer] Prefetching next segment:', nextKey);
+            await fetchAndCacheAudio(nextContent.text, nextKey);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[LessonPlayer] Prefetch error (non-critical):', error);
+    }
+  };
+
+  // Log cache statistics on mount for debugging
+  useEffect(() => {
+    console.log('[LessonPlayer] Component mounted, cache size:', audioCache.size);
+    console.log('[LessonPlayer] Lesson has', lesson?.segments?.length || 0, 'segments');
+    if (lesson?.segments?.length > 0) {
+      console.log('[LessonPlayer] Expected max TTS calls:', 
+        Math.min(lesson.segments.length + 1, 3), // Current + prefetch, max 3
+        '(current + prefetch)');
+    }
+    return () => {
+      console.log('[LessonPlayer] Component unmounting, cache size:', audioCache.size);
+    };
+  }, [lesson]);
 
   // Auto-start lesson after intro
   useEffect(() => {
@@ -46,9 +146,16 @@ export function LessonPlayer({ lesson, onComplete }: LessonPlayerProps) {
     }
   }, [lessonState, hasStarted, transitionState]);
 
-  // Play lesson segment
+  // Play lesson segment - Only fetch audio when actually playing new content
   useEffect(() => {
     if (!isPlaying || !content?.text) return;
+
+    const contentKey = getContentKey(currentSegment, currentVariant);
+    
+    // Skip if we're already playing this content
+    if (currentContentKeyRef.current === contentKey && audioRef.current) {
+      return;
+    }
 
     let isCancelled = false;
     const words = content.text.split(' ');
@@ -56,24 +163,14 @@ export function LessonPlayer({ lesson, onComplete }: LessonPlayerProps) {
 
     const playSegment = async () => {
       try {
-        // Fetch audio from ElevenLabs
-        console.log('[LessonPlayer] Fetching audio...');
-        const response = await fetch('/api/tts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: content.text }),
-        });
+        setIsLoadingAudio(true);
+        currentContentKeyRef.current = contentKey;
 
-        if (!response.ok || isCancelled) {
-          throw new Error('Audio fetch failed');
-        }
-
-        const audioBlob = await response.blob();
-        const audioUrl = URL.createObjectURL(audioBlob);
+        // Fetch audio (will use cache if available)
+        const audioUrl = await fetchAndCacheAudio(content.text, contentKey);
         
-        if (isCancelled) {
-          URL.revokeObjectURL(audioUrl);
-          return;
+        if (!audioUrl || isCancelled) {
+          throw new Error('Audio fetch failed');
         }
 
         // Create and play audio
@@ -84,8 +181,12 @@ export function LessonPlayer({ lesson, onComplete }: LessonPlayerProps) {
         audio.addEventListener('loadedmetadata', () => {
           if (isCancelled) return;
           
+          setIsLoadingAudio(false);
           const duration = audio.duration * 1000;
           const timePerWord = duration / words.length;
+          
+          // Start prefetching next segment after audio starts playing
+          prefetchNextSegment();
           
           const animateWords = () => {
             if (isCancelled || !audioRef.current) return;
@@ -116,7 +217,6 @@ export function LessonPlayer({ lesson, onComplete }: LessonPlayerProps) {
           
           console.log('[LessonPlayer] Segment complete');
           setDisplayText(content.text);
-          URL.revokeObjectURL(audioUrl);
           
           // Move to next segment
           setTimeout(() => {
@@ -124,6 +224,7 @@ export function LessonPlayer({ lesson, onComplete }: LessonPlayerProps) {
               nextSegment();
               setDisplayText('');
               setCurrentWordIndex(0);
+              currentContentKeyRef.current = null; // Reset for next segment
             } else {
               transitionState({ type: 'COMPLETE', timestamp: Date.now() });
             }
@@ -131,38 +232,34 @@ export function LessonPlayer({ lesson, onComplete }: LessonPlayerProps) {
         });
 
         await audio.play();
-        console.log('[LessonPlayer] Playing audio');
+        console.log('[LessonPlayer] Playing audio for:', contentKey);
         
       } catch (error) {
         if (isCancelled) return;
         
+        setIsLoadingAudio(false);
         console.error('[LessonPlayer] Error:', error);
-        // Fallback: Just show text without audio
-        const showTextFallback = () => {
-          const interval = setInterval(() => {
-            if (wordIndex < words.length && !isCancelled) {
-              setDisplayText(words.slice(0, wordIndex + 1).join(' '));
-              setCurrentWordIndex(wordIndex);
-              wordIndex++;
-            } else {
-              clearInterval(interval);
-              if (!isCancelled) {
-                setTimeout(() => {
-                  if (currentSegment < lesson.segments.length - 1) {
-                    nextSegment();
-                  } else {
-                    transitionState({ type: 'COMPLETE', timestamp: Date.now() });
-                  }
-                }, 1500);
-              }
-            }
-          }, 150);
-          
-          return () => clearInterval(interval);
-        };
         
-        const cleanup = showTextFallback();
-        return cleanup;
+        // Fallback: Just show text without audio
+        const interval = setInterval(() => {
+          if (wordIndex < words.length && !isCancelled) {
+            setDisplayText(words.slice(0, wordIndex + 1).join(' '));
+            setCurrentWordIndex(wordIndex);
+            wordIndex++;
+          } else {
+            clearInterval(interval);
+            if (!isCancelled) {
+              setTimeout(() => {
+                if (currentSegment < lesson.segments.length - 1) {
+                  nextSegment();
+                  currentContentKeyRef.current = null;
+                } else {
+                  transitionState({ type: 'COMPLETE', timestamp: Date.now() });
+                }
+              }, 1500);
+            }
+          }
+        }, 150);
       }
     };
 
@@ -179,7 +276,7 @@ export function LessonPlayer({ lesson, onComplete }: LessonPlayerProps) {
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
-  }, [isPlaying, currentSegment, content, lesson.segments.length, nextSegment, transitionState]);
+  }, [isPlaying, currentSegment, currentVariant]); // Removed unnecessary dependencies
 
   // Handle voice commands
   useEffect(() => {
@@ -189,6 +286,9 @@ export function LessonPlayer({ lesson, onComplete }: LessonPlayerProps) {
       handlePause();
     } else if (sensing.lastVoiceCommand === 'SKIP') {
       handleSkip();
+    } else if (sensing.lastVoiceCommand === 'SIMPLIFY' || sensing.lastVoiceCommand === 'DEEPEN') {
+      // When variant changes, reset the current content key to trigger new audio fetch
+      currentContentKeyRef.current = null;
     }
   }, [sensing.lastVoiceCommand]);
 
@@ -211,6 +311,9 @@ export function LessonPlayer({ lesson, onComplete }: LessonPlayerProps) {
       audioRef.current.pause();
       audioRef.current = null;
     }
+    // Reset current content tracking
+    currentContentKeyRef.current = null;
+    
     if (currentSegment < lesson.segments.length - 1) {
       nextSegment();
       setDisplayText('');
@@ -246,7 +349,8 @@ export function LessonPlayer({ lesson, onComplete }: LessonPlayerProps) {
             >
               <div className="max-w-3xl">
                 <motion.p className="text-2xl lg:text-4xl font-bold text-white leading-relaxed">
-                  {displayText || (isPlaying ? 'Loading...' : 'Press play to start')}
+                  {isLoadingAudio ? 'Loading audio...' : 
+                   displayText || (isPlaying ? 'Preparing...' : 'Press play to start')}
                 </motion.p>
               </div>
 
@@ -295,7 +399,12 @@ export function LessonPlayer({ lesson, onComplete }: LessonPlayerProps) {
 
               <div className="flex items-center gap-2 text-white">
                 <Volume2 size={20} />
-                <span className="text-sm">ElevenLabs Voice</span>
+                <span className="text-sm">
+                  ElevenLabs Voice
+                  {audioCache.has(getContentKey(currentSegment, currentVariant)) && (
+                    <span className="ml-2 text-xs text-green-400">(Cached)</span>
+                  )}
+                </span>
               </div>
             </div>
 
