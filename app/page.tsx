@@ -8,7 +8,7 @@ import { ContentSource } from '@/types';
 
 export default function HomePage() {
   const router = useRouter();
-  const [inputType, setInputType] = useState<'youtube' | 'pdf' | 'topic'>('youtube');
+  const [inputType, setInputType] = useState<'youtube' | 'pdf' | 'topic'>('topic');
   const [inputValue, setInputValue] = useState('');
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -80,36 +80,13 @@ export default function HomePage() {
           </h1>
           
           <p className="text-2xl lg:text-3xl text-gray-300 mb-4">
-            The Video That Watches You Back
+            Learning That Adapts to You
           </p>
           
           <p className="text-lg text-gray-400 mb-12 max-w-2xl mx-auto">
             60-second AI lessons that adapt to your confusion in real-time. 
             Turn any PDF, YouTube video, or topic into personalized micro-lessons.
           </p>
-
-          {/* Feature pills */}
-          <div className="flex flex-wrap justify-center gap-3 mb-12">
-            {[
-              { icon: '👁️', text: 'Eye Tracking' },
-              { icon: '🎤', text: 'Voice Commands' },
-              { icon: '🧠', text: 'Adaptive Content' },
-              { icon: '⚡', text: '60-Second Lessons' },
-              { icon: '💻', text: 'Coding Challenges' },
-              { icon: '🎥', text: 'Proof Videos' },
-            ].map((feature, index) => (
-              <motion.div
-                key={index}
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: index * 0.1 }}
-                className="px-4 py-2 bg-white/10 backdrop-blur rounded-full flex items-center gap-2"
-              >
-                <span className="text-xl">{feature.icon}</span>
-                <span className="text-sm text-gray-300">{feature.text}</span>
-              </motion.div>
-            ))}
-          </div>
         </motion.div>
 
         {/* Input Section */}
@@ -127,9 +104,9 @@ export default function HomePage() {
             {/* Input type selector */}
             <div className="flex justify-center gap-2 mb-6">
               {[
+                { value: 'topic', icon: BookOpen, label: 'Topic' },
                 { value: 'youtube', icon: Link, label: 'YouTube' },
                 { value: 'pdf', icon: Upload, label: 'PDF' },
-                { value: 'topic', icon: BookOpen, label: 'Topic' },
               ].map((type) => (
                 <button
                   key={type.value}
@@ -269,6 +246,36 @@ export default function HomePage() {
             <p className="text-sm text-gray-500">
               🎯 Demo Mode: Try "Introduction to React Hooks" or paste any YouTube URL
             </p>
+          </div>
+        </motion.div>
+
+        {/* Feature pills */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4 }}
+          className="mt-16 max-w-4xl mx-auto"
+        >
+          <div className="flex flex-wrap justify-center gap-3">
+            {[
+              { icon: '👁️', text: 'Eye Tracking' },
+              { icon: '🎤', text: 'Voice Commands' },
+              { icon: '🧠', text: 'Adaptive Content' },
+              { icon: '⚡', text: '60-Second Lessons' },
+              { icon: '💻', text: 'Coding Challenges' },
+              { icon: '🎥', text: 'Proof Videos' },
+            ].map((feature, index) => (
+              <motion.div
+                key={index}
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.5 + index * 0.1 }}
+                className="px-4 py-2 bg-white/10 backdrop-blur rounded-full flex items-center gap-2"
+              >
+                <span className="text-xl">{feature.icon}</span>
+                <span className="text-sm text-gray-300">{feature.text}</span>
+              </motion.div>
+            ))}
           </div>
         </motion.div>
 
