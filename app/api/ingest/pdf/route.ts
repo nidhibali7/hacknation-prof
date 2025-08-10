@@ -168,6 +168,7 @@ function createSegments(text: string): Lesson['segments'] {
   return paragraphs.slice(0, 3).map((para, index) => ({
     id: crypto.randomUUID(),
     order: index,
+    concept: para.split('.')[0].substring(0, 80) || `Concept ${index + 1}`,
     variants: {
       normal: {
         text: para,
@@ -268,7 +269,7 @@ function extractKeyPhrases(text: string): string[] {
     }
   }
   
-  return [...new Set(phrases)].slice(0, 5);
+  return Array.from(new Set(phrases)).slice(0, 5);
 }
 
 function extractTechnicalTerms(text: string): string[] {

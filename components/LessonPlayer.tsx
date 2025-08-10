@@ -347,13 +347,38 @@ export function LessonPlayer({ lesson, onComplete }: LessonPlayerProps) {
               exit={{ opacity: 0, y: -20 }}
               className="flex-1 flex flex-col justify-center items-center text-center"
             >
-              <div className="max-w-3xl">
+              <div className="max-w-3xl space-y-4">
+                {/* Hook - shown at the beginning */}
+                {content?.hook && displayText.length === 0 && (
+                  <motion.p 
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="text-lg text-prof-green italic"
+                  >
+                    "{content.hook}"
+                  </motion.p>
+                )}
+                
+                {/* Main content */}
                 <motion.p className="text-2xl lg:text-4xl font-bold text-white leading-relaxed">
                   {isLoadingAudio ? 'Loading audio...' : 
                    displayText || (isPlaying ? 'Preparing...' : 'Press play to start')}
                 </motion.p>
+                
+                {/* Example - shown when text is mostly displayed */}
+                {content?.example && currentWordIndex > (content.text.split(' ').length * 0.5) && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="mt-4 p-4 bg-white/10 rounded-lg"
+                  >
+                    <p className="text-sm text-prof-blue uppercase tracking-wide mb-2">Example:</p>
+                    <p className="text-white/90">{content.example}</p>
+                  </motion.div>
+                )}
               </div>
 
+              {/* Code display */}
               {showCode && content?.code && (
                 <motion.div
                   initial={{ opacity: 0, scale: 0.9 }}
@@ -365,6 +390,18 @@ export function LessonPlayer({ lesson, onComplete }: LessonPlayerProps) {
                       {content.code}
                     </code>
                   </pre>
+                </motion.div>
+              )}
+              
+              {/* Memory trick - shown at the end */}
+              {content?.memoryTrick && displayText === content.text && (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mt-4 p-3 bg-gradient-to-r from-prof-purple/20 to-prof-blue/20 rounded-lg border border-prof-purple/30"
+                >
+                  <p className="text-sm text-prof-purple">💡 Remember:</p>
+                  <p className="text-white/80 text-sm">{content.memoryTrick}</p>
                 </motion.div>
               )}
             </motion.div>

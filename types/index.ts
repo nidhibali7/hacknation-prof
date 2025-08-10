@@ -24,8 +24,12 @@ export interface LessonSegment {
 }
 
 export interface SegmentContent {
-  text: string;
-  code?: string;
+  text: string; // Main explanation (200-300 words)
+  hook?: string; // Opening hook to grab attention (20-30 words)
+  code?: string; // Code example if relevant
+  example?: string; // Concrete example or analogy
+  application?: string; // Real-world application
+  memoryTrick?: string; // Mnemonic or memory aid
   visualAid?: string;
   speakingRate: number; // 0.5 to 2.0
   emphasis?: string[]; // words to emphasize

@@ -93,38 +93,105 @@ async function generateWithAnthropic(
   source: any,
   options: any
 ): Promise<Lesson> {
-  const prompt = `You are an expert educator creating adaptive 60-second micro-lessons.
-Analyze this content and create EXACTLY 3 lesson segments that teach the KEY CONCEPTS.
+  // First, analyze the content to determine optimal segmentation
+  const analysisPrompt = `You are an expert educator and learning designer. Analyze this content and determine how to best teach it.
 
 Content to analyze:
-${content.substring(0, 3000)}
+${content.substring(0, 5000)}
 
-Requirements for each segment:
-1. Extract a SPECIFIC concept from the content (not generic)
-2. Provide a clear, concise concept title (5-10 words)
-3. Create three adaptive versions:
-   - normal: Clear explanation of the concept (50-60 words)
-   - simplified: Use everyday analogies, like explaining to a child (50-60 words)
-   - advanced: Technical depth with formulas/theory (50-60 words)
+Analyze:
+1. What are the core concepts that must be understood?
+2. What is the logical learning progression?
+3. How many segments would best teach this (1-6)?
+4. What makes this content interesting or important?
+5. What examples or applications are in the source?
 
-Output JSON format:
+Return a teaching plan as JSON:
 {
-  "title": "Specific title based on the actual content",
+  "contentSummary": "What this content teaches",
+  "segmentCount": <number 1-6>,
+  "concepts": ["concept1", "concept2", ...],
+  "difficulty": "beginner|intermediate|advanced",
+  "keyInsight": "The main 'aha moment' to convey"
+}`;
+
+  const analysisMessage = await anthropic.messages.create({
+    model: 'claude-3-opus-20240229',
+    max_tokens: 1000,
+    temperature: 0.5,
+    messages: [{
+      role: 'user',
+      content: analysisPrompt
+    }]
+  });
+
+  const analysisText = analysisMessage.content[0].type === 'text' ? analysisMessage.content[0].text : '';
+  const analysisMatch = analysisText.match(/\{[\s\S]*\}/);
+  if (!analysisMatch) throw new Error('Invalid analysis format');
+  const analysis = JSON.parse(analysisMatch[0]);
+
+  // Now generate rich educational content based on the analysis
+  const prompt = `You are the world's best tutor creating an adaptive learning experience.
+
+Based on this analysis: ${JSON.stringify(analysis)}
+
+Create ${analysis.segmentCount} lesson segments from this content:
+${content.substring(0, 8000)}
+
+Each segment must include:
+
+1. **Hook** (20-30 words): An intriguing opening that makes learners care
+2. **Main Content** (200-250 words): Deep, clear explanation with insights from the source
+3. **Example**: A concrete example, code snippet, or vivid analogy from the content
+4. **Application**: Where/how this is used in practice
+5. **Memory Trick**: A mnemonic, pattern, or trick to remember this
+
+Create three versions for each segment:
+
+**Normal Version**: Clear, engaging explanation for general audience. Use examples from the source. Make connections explicit.
+
+**Simplified Version**: Use a memorable everyday analogy. Tell it like a story. Make it impossible to forget. Like explaining to a curious 12-year-old.
+
+**Advanced Version**: Include technical depth, edge cases, mathematical formulas, or code implementations. Challenge the learner with nuance.
+
+IMPORTANT:
+- Extract ACTUAL content from the source, not generic explanations
+- Each segment should create an "aha moment"
+- Make it feel like learning from a passionate expert, not reading a textbook
+- Use specific examples and data from the source material
+
+Output JSON:
+{
+  "title": "<Compelling title from the content>",
   "segments": [
     {
-      "concept": "Clear, concise concept title (5-10 words)",
-      "normal": "Normal explanation",
-      "simplified": "Simple analogy",
-      "advanced": "Technical explanation",
-      "keywords": ["key", "terms", "to", "emphasize"]
+      "concept": "<Clear concept name>",
+      "hook": "<Intriguing opening>",
+      "normal": {
+        "text": "<200-250 word explanation>",
+        "example": "<Concrete example>",
+        "application": "<Real-world use>",
+        "memoryTrick": "<How to remember>"
+      },
+      "simplified": {
+        "text": "<200-250 word story/analogy>",
+        "example": "<Relatable example>",
+        "memoryTrick": "<Simple pattern>"
+      },
+      "advanced": {
+        "text": "<200-250 word technical explanation>",
+        "code": "<Code if applicable>",
+        "theory": "<Mathematical or theoretical depth>"
+      },
+      "keywords": ["emphasis", "words"]
     }
   ],
-  "mainTopics": ["actual", "topics", "from", "content"]
+  "mainTopics": ["extracted", "topics"]
 }`;
 
   const message = await anthropic.messages.create({
     model: 'claude-3-opus-20240229',
-    max_tokens: 2000,
+    max_tokens: 4000,
     temperature: 0.7,
     messages: [{
       role: 'user',
@@ -148,35 +215,101 @@ async function generateWithOpenAI(
   source: any,
   options: any
 ): Promise<Lesson> {
-  const systemPrompt = `You are an expert educator creating adaptive 60-second micro-lessons.
-Your job is to analyze the provided content and extract the KEY CONCEPTS to teach.
+  const systemPrompt = `You are an exceptional educator and learning experience designer. Your expertise lies in breaking down complex topics into engaging, memorable lessons that create "aha moments" for learners.
 
-IMPORTANT: 
-- Base your lessons on the ACTUAL CONTENT provided
-- Extract SPECIFIC concepts, not generic topics
-- Each segment should teach something concrete from the source material`;
+Your approach:
+1. First understand what makes this content important and interesting
+2. Identify the core concepts and their relationships
+3. Create a learning journey that builds understanding progressively
+4. Use concrete examples, analogies, and applications from the source
+5. Make every segment valuable and memorable`;
 
-  const userPrompt = `Analyze this content and create 3 lesson segments:
+  // First analyze the content
+  const analysisPrompt = `Analyze this content to create an optimal learning experience:
 
-${content.substring(0, 3000)}
+${content.substring(0, 5000)}
 
-For each segment provide:
-1. A clear concept title (5-10 words)
-2. Normal explanation (50-60 words)
-3. Simplified version with analogies (50-60 words)
-4. Advanced technical version (50-60 words)
+Determine:
+1. Core concepts that must be understood
+2. Optimal number of segments (1-6) to teach this effectively
+3. The key insight or "aha moment" to convey
+4. Specific examples and applications from the source
 
-Return as JSON with this structure:
+Return analysis as JSON:
 {
-  "title": "Based on actual content",
+  "contentSummary": "Main topic and importance",
+  "segmentCount": <1-6>,
+  "concepts": ["concept names"],
+  "keyInsight": "The main revelation",
+  "difficulty": "beginner|intermediate|advanced"
+}`;
+
+  const analysisCompletion = await openai.chat.completions.create({
+    model: 'gpt-4-turbo-preview',
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: analysisPrompt }
+    ],
+    temperature: 0.5,
+    max_tokens: 1000,
+    response_format: { type: 'json_object' },
+  });
+
+  const analysis = JSON.parse(analysisCompletion.choices[0].message.content || '{}');
+
+  // Generate rich lesson content
+  const userPrompt = `Based on your analysis: ${JSON.stringify(analysis)}
+
+Create ${analysis.segmentCount} lesson segments from this content:
+${content.substring(0, 8000)}
+
+For each segment, create:
+
+1. **Hook** (20-30 words): Opening that grabs attention and shows why this matters
+2. **Main Explanation** (200-250 words): Deep, insightful teaching with examples from source
+3. **Concrete Example**: Specific example, data, or code from the content
+4. **Real Application**: Where this is used in practice
+5. **Memory Aid**: Pattern, mnemonic, or trick to remember
+
+Generate three adaptive versions:
+
+**NORMAL**: Clear, engaging explanation for general learners. Connect concepts explicitly. Use examples from source.
+
+**SIMPLIFIED**: Memorable analogy or story. Make it visual and relatable. Like teaching a smart 12-year-old.
+
+**ADVANCED**: Technical depth with theory, math, code, or edge cases. Challenge with nuance.
+
+Rules:
+- Extract REAL insights from the source, not generic knowledge
+- Each segment teaches something concrete and valuable
+- Make it feel like learning from a passionate expert
+- Create "aha moments" and memorable understanding
+
+Return as JSON:
+{
+  "title": "<Compelling title from content>",
   "segments": [{
-    "concept": "Clear concept title (5-10 words)",
-    "normal": "Explanation",
-    "simplified": "Simple version",
-    "advanced": "Technical version",
-    "keywords": ["important", "terms"]
+    "concept": "<Concept name>",
+    "hook": "<Attention grabber>",
+    "normal": {
+      "text": "<200-250 words>",
+      "example": "<From source>",
+      "application": "<Real use>",
+      "memoryTrick": "<Aid>"
+    },
+    "simplified": {
+      "text": "<200-250 word analogy>",
+      "example": "<Relatable>",
+      "memoryTrick": "<Simple pattern>"
+    },
+    "advanced": {
+      "text": "<200-250 technical>",
+      "code": "<If applicable>",
+      "theory": "<Deep insight>"
+    },
+    "keywords": ["key", "terms"]
   }],
-  "mainTopics": ["extracted", "topics"]
+  "mainTopics": ["topics"]
 }`;
 
   const completion = await openai.chat.completions.create({
@@ -186,7 +319,7 @@ Return as JSON with this structure:
       { role: 'user', content: userPrompt }
     ],
     temperature: 0.7,
-    max_tokens: 2000,
+    max_tokens: 4000,
     response_format: { type: 'json_object' },
   });
 
@@ -198,60 +331,119 @@ async function generateFromContent(
   content: string,
   source: any
 ): Promise<Lesson> {
-  // Smart content extraction without AI
-  // This analyzes the actual content structure
+  // Intelligent content extraction without AI
+  // Creates educational segments from the source material
   
   const sentences = content.match(/[^.!?]+[.!?]+/g) || [];
-  const paragraphs = content.split(/\n\n+/);
+  const paragraphs = content.split(/\n\n+/).filter(p => p.trim().length > 50);
   
-  // Extract key concepts by finding important sentences
-  const concepts: string[] = [];
-  const keywords = new Set<string>();
+  // Find the most important paragraphs based on keyword density
+  const scoreParagraph = (para: string): number => {
+    const importantWords = [
+      'important', 'key', 'main', 'concept', 'principle', 'fundamental',
+      'essential', 'core', 'critical', 'means', 'defined', 'works',
+      'used', 'allows', 'enables', 'because', 'therefore', 'thus'
+    ];
+    let score = 0;
+    const lower = para.toLowerCase();
+    importantWords.forEach(word => {
+      if (lower.includes(word)) score += 2;
+    });
+    // Bonus for paragraphs with examples or code
+    if (lower.includes('example') || lower.includes('for instance')) score += 3;
+    if (para.includes('```') || para.includes('    ')) score += 3; // code blocks
+    return score;
+  };
   
-  // Find sentences with key indicators
-  const importantIndicators = [
-    'important', 'key', 'main', 'concept', 'principle', 'fundamental',
-    'essential', 'core', 'critical', 'means', 'defined as', 'is a',
-    'works by', 'used for', 'allows', 'enables'
-  ];
+  // Sort paragraphs by importance
+  const rankedParagraphs = paragraphs
+    .map(p => ({ text: p, score: scoreParagraph(p) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 6); // Max 6 segments
   
-  sentences.forEach(sentence => {
-    const lower = sentence.toLowerCase();
-    if (importantIndicators.some(indicator => lower.includes(indicator))) {
-      concepts.push(sentence.trim());
-    }
-  });
-
-  // Extract technical terms (capitalized words, acronyms)
-  const technicalTerms = content.match(/\b[A-Z][a-z]+\b|\b[A-Z]{2,}\b/g) || [];
-  technicalTerms.forEach(term => keywords.add(term.toLowerCase()));
-
-  // Create segments from extracted concepts
-  const segments = concepts.slice(0, 3).map((concept, index) => {
-    const words = concept.split(' ');
-    const keyTerms = words.filter(w => w.length > 4).slice(0, 3);
-    const conceptTitle = concept.split('.')[0].substring(0, 80);
+  // Determine optimal segment count (1-6)
+  const segmentCount = Math.min(Math.max(1, Math.ceil(content.length / 2000)), 6);
+  
+  // Create rich segments from top paragraphs
+  const segments = rankedParagraphs.slice(0, segmentCount).map((para, index) => {
+    const text = para.text;
+    const sentences = text.match(/[^.!?]+[.!?]+/g) || [];
+    const firstSentence = sentences[0] || text.substring(0, 100);
+    const conceptTitle = firstSentence.substring(0, 80).replace(/[.!?]/g, '').trim();
+    
+    // Extract keywords from this paragraph
+    const words = text.toLowerCase().split(/\W+/);
+    const wordFreq: Record<string, number> = {};
+    words.forEach(word => {
+      if (word.length > 4) {
+        wordFreq[word] = (wordFreq[word] || 0) + 1;
+      }
+    });
+    const keywords = Object.entries(wordFreq)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([word]) => word);
+    
+    // Create a hook from the most interesting sentence
+    const hook = sentences.find(s => 
+      s.includes('?') || s.includes('!') || s.toLowerCase().includes('imagine')
+    ) || `Let's explore ${conceptTitle.toLowerCase()}`;
+    
+    // Expand the content to be educational (200+ words)
+    const expandedNormal = `${text} ${sentences.length < 3 ? 
+      `This concept is fundamental to understanding the broader topic. When we look at ${conceptTitle.toLowerCase()}, we're seeing a key building block that connects to many other ideas. Understanding this will help you grasp more complex concepts that build upon it.` : ''}`;
+    
+    const simplifiedText = `Imagine ${conceptTitle.toLowerCase()} is like ${createAnalogy(text)}. ${simplifyExplanation(text)} In everyday terms, this means ${extractSimpleExplanation(text)}. The key thing to remember is that ${firstSentence.toLowerCase()}`;
+    
+    const advancedText = `${text} At a deeper level, ${extractTechnicalAspects(text)}. This involves understanding the underlying mechanisms and theoretical foundations. Advanced practitioners should consider edge cases, performance implications, and how this integrates with related systems.`;
     
     return {
       concept: conceptTitle,
-      normal: concept,
-      simplified: `This is like ${createAnalogy(concept)}. ${simplifyExplanation(concept)}`,
-      advanced: `${concept} This involves ${extractTechnicalAspects(concept)} at a fundamental level.`,
-      keywords: keyTerms
+      hook: hook.substring(0, 100),
+      normal: {
+        text: expandedNormal,
+        example: extractExample(text),
+        application: `This is used in practice when ${extractApplication(text)}`,
+        memoryTrick: `Remember: ${keywords[0] || 'key'} connects to ${keywords[1] || 'concept'}`
+      },
+      simplified: {
+        text: simplifiedText,
+        example: createSimpleExample(conceptTitle),
+        memoryTrick: `Think of it like ${createAnalogy(conceptTitle).substring(0, 50)}`
+      },
+      advanced: {
+        text: advancedText,
+        code: extractCode(text),
+        theory: extractTechnicalAspects(text)
+      },
+      keywords: keywords
     };
   });
 
-  // If we couldn't extract enough concepts, create from paragraphs
-  while (segments.length < 3 && paragraphs.length > segments.length) {
-    const para = paragraphs[segments.length];
-    const firstSentence = para.split('.')[0];
-    const conceptTitle = firstSentence.substring(0, 80).trim() || `Key Concept ${segments.length + 1}`;
+  // If we still don't have enough segments, create one comprehensive segment
+  if (segments.length === 0) {
+    const summary = content.substring(0, 1000);
+    const firstSentence = summary.split('.')[0] || 'This content';
     segments.push({
-      concept: conceptTitle,
-      normal: para.substring(0, 200),
-      simplified: `Think of it as ${createAnalogy(firstSentence)}. ${simplifyExplanation(para)}`,
-      advanced: `${para.substring(0, 150)} This requires understanding the underlying mechanisms.`,
-      keywords: extractKeywords(para)
+      concept: 'Core Concept',
+      hook: 'Let\'s understand this step by step',
+      normal: {
+        text: summary.length < 200 ? summary + ' This forms the foundation of our understanding.' : summary,
+        example: 'Consider how this applies in practice.',
+        application: 'This concept is widely used in real-world scenarios.',
+        memoryTrick: 'Focus on the key relationship between cause and effect.'
+      },
+      simplified: {
+        text: `Think of it as ${createAnalogy(firstSentence)}. ${simplifyExplanation(summary)}`,
+        example: 'Like learning to ride a bike - practice makes perfect.',
+        memoryTrick: 'Remember the simple pattern.'
+      },
+      advanced: {
+        text: `${summary} This requires understanding the underlying mechanisms and theoretical foundations.`,
+        code: extractCode(summary),
+        theory: extractTechnicalAspects(summary)
+      },
+      keywords: extractKeywords(summary)
     });
   }
 
@@ -272,28 +464,47 @@ function transformToLesson(
   // Transform AI result to our Lesson structure
   const segments = aiResult.segments || [];
   
-  return {
-    id: crypto.randomUUID(),
-    title: aiResult.title || 'Adaptive Lesson',
-    source,
-    duration: segments.length * 60,
-    segments: segments.map((seg: any, index: number) => ({
+  // Calculate realistic duration based on word count (150 words per minute speaking rate)
+  const calculateDuration = (text: string) => {
+    const wordCount = text.split(/\s+/).length;
+    return Math.ceil(wordCount / 150 * 60); // seconds
+  };
+  
+  const transformedSegments = segments.map((seg: any, index: number) => {
+    // Handle both old and new format
+    const normalContent = seg.normal?.text || seg.normal || seg.explanation || '';
+    const simplifiedContent = seg.simplified?.text || seg.simplified || seg.simple || '';
+    const advancedContent = seg.advanced?.text || seg.advanced || seg.technical || '';
+    
+    return {
       id: crypto.randomUUID(),
       order: index,
-      concept: seg.concept || `Concept ${index + 1}`, // Preserve the concept
+      concept: seg.concept || `Concept ${index + 1}`,
       variants: {
         normal: {
-          text: seg.normal || seg.explanation || 'Content not available',
+          text: normalContent,
+          hook: seg.hook || seg.normal?.hook,
+          example: seg.normal?.example,
+          application: seg.normal?.application,
+          memoryTrick: seg.normal?.memoryTrick,
+          code: seg.normal?.code,
           speakingRate: 1.0,
-          emphasis: seg.keywords || extractKeywords(seg.normal || ''),
+          emphasis: seg.keywords || extractKeywords(normalContent),
         },
         simplified: {
-          text: seg.simplified || seg.simple || seg.normal,
+          text: simplifiedContent,
+          hook: seg.simplified?.hook || seg.hook,
+          example: seg.simplified?.example,
+          memoryTrick: seg.simplified?.memoryTrick,
           speakingRate: 0.9,
           emphasis: (seg.keywords || []).slice(0, 3),
         },
         advanced: {
-          text: seg.advanced || seg.technical || seg.normal,
+          text: advancedContent,
+          hook: seg.advanced?.hook || seg.hook,
+          code: seg.advanced?.code || seg.code,
+          example: seg.advanced?.theory || seg.advanced?.example,
+          application: seg.advanced?.application,
           speakingRate: 1.1,
           emphasis: [...(seg.keywords || []), ...(seg.technicalTerms || [])],
         },
@@ -301,26 +512,38 @@ function transformToLesson(
       triggers: [
         { condition: 'confusion', threshold: 0.7, action: 'simplify' },
         { condition: 'voice_command', action: 'deepen' },
+        { condition: 'distraction', threshold: 3, action: 'break' },
       ],
-    })),
+    };
+  });
+  
+  // Calculate total duration from actual content
+  const totalDuration = transformedSegments.reduce((acc: number, seg: any) => {
+    return acc + calculateDuration(seg.variants.normal.text);
+  }, 0);
+  
+  return {
+    id: crypto.randomUUID(),
+    title: aiResult.title || 'Adaptive Lesson',
+    source,
+    duration: totalDuration,
+    segments: transformedSegments,
     challenge: {
       id: crypto.randomUUID(),
       title: 'Apply Your Knowledge',
       description: `Based on what you learned about ${aiResult.title}, demonstrate your understanding.`,
       starterCode: generateChallengeCode(aiResult.title, aiResult.mainTopics),
       tests: [],
-      hints: [
-        `Think about ${segments[0]?.concept || 'the first concept'}`,
-        'Apply what you learned step by step',
-        'Consider real-world applications'
-      ],
+      hints: segments.map((seg: any, i: number) => 
+        `Apply ${seg.concept || `concept ${i + 1}`}: ${seg.normal?.memoryTrick || seg.hook || 'Think step by step'}`
+      ).slice(0, 3),
       timeLimit: 5,
     },
     metadata: {
-      difficulty: determineDifficulty(originalContent),
+      difficulty: aiResult.difficulty || determineDifficulty(originalContent),
       topics: aiResult.mainTopics || extractTopics(originalContent),
       prerequisites: [],
-      estimatedTime: 10,
+      estimatedTime: Math.ceil(totalDuration / 60), // Convert to minutes
     },
   };
 }
@@ -418,6 +641,79 @@ function extractTechnicalAspects(text: string): string {
     return technical.slice(0, 3).join(', ');
   }
   return 'advanced mechanisms and optimizations';
+}
+
+function extractExample(text: string): string {
+  // Try to find example in text
+  const lower = text.toLowerCase();
+  const exampleIndex = lower.indexOf('example');
+  const forInstanceIndex = lower.indexOf('for instance');
+  const suchAsIndex = lower.indexOf('such as');
+  
+  if (exampleIndex > -1) {
+    return text.substring(exampleIndex, Math.min(exampleIndex + 150, text.length));
+  } else if (forInstanceIndex > -1) {
+    return text.substring(forInstanceIndex, Math.min(forInstanceIndex + 150, text.length));
+  } else if (suchAsIndex > -1) {
+    return text.substring(suchAsIndex, Math.min(suchAsIndex + 150, text.length));
+  }
+  
+  // Return first interesting sentence as example
+  const sentences = text.match(/[^.!?]+[.!?]+/g) || [];
+  return sentences[1] || sentences[0] || 'Consider how this works in practice.';
+}
+
+function extractApplication(text: string): string {
+  const applications = [
+    'solving complex problems',
+    'building efficient systems',
+    'analyzing data',
+    'making decisions',
+    'optimizing performance'
+  ];
+  
+  // Look for application keywords in text
+  const lower = text.toLowerCase();
+  if (lower.includes('used')) {
+    const usedIndex = lower.indexOf('used');
+    return text.substring(usedIndex, Math.min(usedIndex + 100, text.length));
+  }
+  
+  return applications[Math.floor(Math.random() * applications.length)];
+}
+
+function createSimpleExample(concept: string): string {
+  return `It's like when you ${concept.toLowerCase().includes('process') ? 'organize your desk' : 
+    concept.toLowerCase().includes('data') ? 'sort your photos' :
+    concept.toLowerCase().includes('connect') ? 'call a friend' :
+    'learn something new'} - start simple, then build up.`;
+}
+
+function extractCode(text: string): string | undefined {
+  // Look for code blocks
+  const codeMatch = text.match(/```[\s\S]*?```/);
+  if (codeMatch) {
+    return codeMatch[0].replace(/```/g, '').trim();
+  }
+  
+  // Look for indented code
+  const lines = text.split('\n');
+  const codeLines = lines.filter(line => line.startsWith('    ') || line.startsWith('\t'));
+  if (codeLines.length > 0) {
+    return codeLines.join('\n').trim();
+  }
+  
+  return undefined;
+}
+
+function extractSimpleExplanation(text: string): string {
+  const sentences = text.match(/[^.!?]+[.!?]+/g) || [];
+  const simple = sentences[0] || text.substring(0, 100);
+  return simple
+    .replace(/\b(utilize|utilization)\b/gi, 'use')
+    .replace(/\b(implement|implementation)\b/gi, 'make')
+    .replace(/\b(demonstrate)\b/gi, 'show')
+    .toLowerCase();
 }
 
 function generateChallengeCode(title: string, topics: string[]): string {

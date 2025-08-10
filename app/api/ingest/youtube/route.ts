@@ -95,6 +95,7 @@ async function generateLessonsFromText(
         {
           id: crypto.randomUUID(),
           order: 0,
+          concept: chunks[i].split('.')[0].substring(0, 80) || `Part ${i + 1}`,
           variants: {
             normal: {
               text: chunks[i],
